@@ -1,3 +1,10 @@
+# Core dependencies for Pink Rose AR Hand Gesture
+
+# OpenCV for webcam access and drawing visuals on frames
 opencv-python
+
+# MediaPipe for robust hand tracking and landmark detection
 mediapipe
+
+# NumPy for efficient mathematical operations and array handling
 numpy

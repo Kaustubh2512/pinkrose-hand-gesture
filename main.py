@@ -30,23 +30,42 @@ def smooth(current, target, speed=0.07):
     return current + (target - current) * speed
 
 def build_plant(W, H, anchor_x):
-    stem_bottom = (anchor_x, H + 30)
-    junction    = (anchor_x, int(H * 0.80))
+    stem_bottom = (anchor_x, H + 50)
+    junction    = (anchor_x, H)
 
-    blen = int(H * 0.26)
-    branch_tips = [
-        (anchor_x - int(blen * 0.90), int(H * 0.45)),
-        (anchor_x,                    int(H * 0.35)),
-        (anchor_x + int(blen * 0.90), int(H * 0.45)),
-    ]
-    sub_junctions = [
-        (anchor_x - int(blen * 0.32), int(H * 0.65)),
-        (anchor_x,                    int(H * 0.55)),
-        (anchor_x + int(blen * 0.32), int(H * 0.65)),
-    ]
+    # Shorter branches for a tighter bouquet
+    blen = int(H * 0.55)
+    branch_tips = []
+    sub_junctions = []
+    
+    num_flowers = 9
+    for i in range(num_flowers):
+        # Tighter spread: 60 degrees total instead of 130
+        base_angle = -30 + i * (60 / (num_flowers - 1))
+        
+        # Tilt slightly towards center based on anchor position
+        tilt = 15 if anchor_x < W / 2 else -15
+        angle_deg = base_angle + tilt
+        angle_rad = math.radians(angle_deg - 90)
+        
+        # Stagger lengths so flowers sit compactly but distinctly
+        length_factor = 0.85 + 0.15 * math.cos(math.radians(base_angle * 2))
+        if i % 2 == 1:
+            length_factor *= 0.65  # lower inner layer
+            
+        length = blen * length_factor
+        
+        tx = int(junction[0] + math.cos(angle_rad) * length)
+        ty = int(junction[1] + math.sin(angle_rad) * length)
+        branch_tips.append((tx, ty))
+        
+        sx = int(junction[0] + math.cos(angle_rad) * length * 0.4)
+        sy = int(junction[1] + math.sin(angle_rad) * length * 0.4)
+        sub_junctions.append((sx, sy))
+
     return stem_bottom, junction, sub_junctions, branch_tips
 
-def draw_stem_segment(img, p1, p2, progress, base_color=(200, 210, 200)):
+def draw_stem_segment(img, p1, p2, progress, base_color=(90, 190, 90)):
     if progress <= 0:
         return
     ex = int(lerp(p1[0], p2[0], progress))
@@ -54,52 +73,54 @@ def draw_stem_segment(img, p1, p2, progress, base_color=(200, 210, 200)):
     end = (ex, ey)
     cv2.line(img, p1, end, base_color, 7, cv2.LINE_AA)
 
-def draw_sunflower(canvas, cx, cy, radius, bloom):
+def draw_pink_rose(canvas, cx, cy, radius, bloom):
     if bloom < 0.02 or radius < 5:
         return
 
-    pad = int(radius) + 8
+    pad = int(radius * 1.5) + 8
     x1 = max(0, cx - pad);  y1 = max(0, cy - pad)
     x2 = min(canvas.shape[1], cx + pad);  y2 = min(canvas.shape[0], cy + pad)
     if x2 <= x1 or y2 <= y1:
         return
 
     patch   = canvas[y1:y2, x1:x2].copy()
-    overlay = np.zeros_like(patch, dtype=np.uint8)
     lcx, lcy = cx - x1, cy - y1
-
-    num_petals = 20
-    petal_len  = radius * bloom
-    petal_base = max(3, int(radius * 0.15 * bloom))
-
-    for i in range(num_petals):
-        angle = 2 * math.pi * i / num_petals
-        perp  = angle + math.pi / 2
-
-        tip_x = int(lcx + math.cos(angle) * petal_len)
-        tip_y = int(lcy + math.sin(angle) * petal_len)
-        b1x   = int(lcx + math.cos(perp) * petal_base)
-        b1y   = int(lcy + math.sin(perp) * petal_base)
-        b2x   = int(lcx - math.cos(perp) * petal_base)
-        b2y   = int(lcy - math.sin(perp) * petal_base)
-
-        pts = np.array([[b1x, b1y], [tip_x, tip_y], [b2x, b2y]], dtype=np.int32)
-
-        cv2.fillPoly(overlay, [pts], (0, 230, 255))
-        cv2.polylines(overlay, [pts], True, (0, 180, 255), 1, cv2.LINE_AA)
-
-    patch = cv2.addWeighted(patch, 1.0, overlay, 0.50 * bloom, 0)
-
-    glow_r = int(radius * 0.38 * bloom)
-    if glow_r > 1:
-        glow = np.zeros_like(patch, dtype=np.uint8)
-        cv2.circle(glow, (lcx, lcy), glow_r, (0, 200, 255), -1)
-        patch = cv2.addWeighted(patch, 1.0, glow, 0.12 * bloom, 0)
-
-    disc_r = max(3, int(radius * 0.20 * bloom))
-    cv2.circle(patch, (lcx, lcy), disc_r + 2, (20, 50, 90), -1)
-    cv2.circle(patch, (lcx, lcy), disc_r,     (15, 35, 65), -1)
-    cv2.circle(patch, (lcx, lcy), disc_r,     (40, 80, 130), 1, cv2.LINE_AA)
+    
+    max_r = radius * bloom
+    num_layers = 6
+    
+    for layer in range(num_layers):
+        layer_ratio = 1.0 - (layer / num_layers)
+        layer_r = max_r * layer_ratio
+        
+        num_petals = 5 + layer * 2
+        
+        # Pink color gradient (BGR format)
+        blue = int(lerp(220, 130, layer / num_layers))
+        green = int(lerp(150, 40, layer / num_layers))
+        red = int(lerp(255, 180, layer / num_layers))
+        
+        color = (blue, green, red)
+        outline_color = (max(0, blue - 30), max(0, green - 30), max(0, red - 40))
+        
+        angle_offset = layer * math.pi / 3.5
+        
+        for p in range(num_petals):
+            angle = angle_offset + 2 * math.pi * p / num_petals
+            
+            dist = layer_r * 0.5
+            px = int(lcx + math.cos(angle) * dist)
+            py = int(lcy + math.sin(angle) * dist)
+            
+            axes = (max(2, int(layer_r * 0.7)), max(2, int(layer_r * 0.5)))
+            angle_deg = int(math.degrees(angle))
+            
+            # Draw directly on the patch to make it solid and opaque
+            cv2.ellipse(patch, (px, py), axes, angle_deg, 0, 360, color, -1)
+            cv2.ellipse(patch, (px, py), axes, angle_deg, 0, 360, outline_color, 1, cv2.LINE_AA)
+            
+    center_r = max(2, int(radius * 0.1 * bloom))
+    cv2.circle(patch, (lcx, lcy), center_r, (80, 30, 150), -1)
 
     canvas[y1:y2, x1:x2] = patch
 
@@ -107,7 +128,7 @@ class PlantState:
     def __init__(self, W, H):
         self.W = W
         self.H = H
-        self.anchor_x = int(W * 0.25)
+        self.anchor_x = int(W * 0.2)
         self.stem_prog  = 0.0
         self.bloom_prog = 0.0
         self._stem_t    = 0.0
@@ -136,11 +157,10 @@ class PlantState:
 
         branch_prog = clamp((sp - 0.50) / 0.50, 0.0, 1.0)
 
-        stagger_list = [0.0, 0.10, 0.0]
-        flower_r = int(min(self.W, self.H) * 0.15)
+        flower_r = int(min(self.W, self.H) * 0.10)
 
         for i, (sj, tip) in enumerate(zip(sub_jncts, tips)):
-            stagger = stagger_list[i]
+            stagger = (i % 3) * 0.15
             denom   = 1.0 - stagger + 0.001
             bp_local = clamp((branch_prog - stagger) / denom, 0.0, 1.0)
 
@@ -154,7 +174,7 @@ class PlantState:
             if bp_local > 0.65:
                 flower_gate = clamp((bp_local - 0.65) / 0.35, 0.0, 1.0)
                 effective_bloom = self.bloom_prog * flower_gate
-                draw_sunflower(canvas, tip[0], tip[1], flower_r, effective_bloom)
+                draw_pink_rose(canvas, tip[0], tip[1], flower_r, effective_bloom)
 
 def draw_hud(canvas, sp, bp, l_det, r_det):
     h, w = canvas.shape[:2]
@@ -166,8 +186,8 @@ def draw_hud(canvas, sp, bp, l_det, r_det):
         cv2.rectangle(canvas, (12, y), (152, y + 9), (140, 140, 140), 1)
         cv2.putText(canvas, label, (12, y - 3), f, 0.34, (200, 200, 200), 1, cv2.LINE_AA)
 
-    bar("LEFT  -> stem",  sp, 28, (130, 200, 130))
-    bar("RIGHT -> bloom", bp, 55, (60,  200, 255))
+    bar("LEFT  -> stem growth",  sp, 28, (130, 200, 130))
+    bar("RIGHT -> rose bloom", bp, 55, (200,  100, 255))
 
     dl = (0, 220, 80) if l_det else (50, 50, 50)
     dr = (0, 220, 80) if r_det else (50, 50, 50)
@@ -176,11 +196,11 @@ def draw_hud(canvas, sp, bp, l_det, r_det):
     cv2.putText(canvas, "L", (w - 31, 22), f, 0.28, (0, 0, 0), 1, cv2.LINE_AA)
     cv2.putText(canvas, "R", (w - 16, 22), f, 0.28, (0, 0, 0), 1, cv2.LINE_AA)
 
-    hint = "Left pinch-out = grow stem  |  Right pinch-out = bloom flowers  |  Q = quit"
-    cv2.putText(canvas, hint, (10, h - 10), f, 0.33, (140, 140, 140), 1, cv2.LINE_AA)
+    hint = "Left Pinch = Grow Stems  |  Right Pinch = Bloom Roses  |  Press 'Q' to Quit"
+    cv2.putText(canvas, hint, (10, h - 10), f, 0.4, (200, 200, 200), 1, cv2.LINE_AA)
 
 def main():
-    cap = cv2.VideoCapture(1)
+    cap = cv2.VideoCapture(0)
     if not cap.isOpened():
         print("Cannot open webcam")
         return
@@ -197,7 +217,7 @@ def main():
 
     plant = PlantState(W, H)
 
-    print("Running  -  press Q to quit")
+    print("Running Pink Rose AR Hand Gesture - Press 'Q' to quit")
 
     while True:
         ret, frame = cap.read()
@@ -233,15 +253,15 @@ def main():
                     r_det = True
                     tx = int(lm[4].x * W); ty = int(lm[4].y * H)
                     ix = int(lm[8].x * W); iy = int(lm[8].y * H)
-                    cv2.line(frame, (tx, ty), (ix, iy), (60, 200, 255), 1, cv2.LINE_AA)
-                    cv2.circle(frame, (tx, ty), 4, (60, 200, 255), -1)
-                    cv2.circle(frame, (ix, iy), 4, (60, 200, 255), -1)
+                    cv2.line(frame, (tx, ty), (ix, iy), (200, 100, 255), 1, cv2.LINE_AA)
+                    cv2.circle(frame, (tx, ty), 4, (200, 100, 255), -1)
+                    cv2.circle(frame, (ix, iy), 4, (200, 100, 255), -1)
 
         plant.update(left_ratio, right_ratio)
         plant.draw(frame)
         draw_hud(frame, plant.stem_prog, plant.bloom_prog, l_det, r_det)
 
-        cv2.imshow("Sunflower AR", frame)
+        cv2.imshow("Pink Rose AR Bouquet", frame)
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break
 
